@@ -1,0 +1,4 @@
+Flask==2.2.3
+gunicorn
+werkzeug==2.2.3
+google-cloud-datastore

@@ -1,102 +1,100 @@
-import pandas as pd
-import numpy as np
-from flask import Flask, render_template, request, send_file
-import io
-import os
+from flask import Flask, render_template, request, redirect, url_for
+from google.cloud import datastore
+import re
 
 app = Flask(__name__)
+datastore_client = datastore.Client()
 
-@app.route("/", methods=["GET", "POST"])
+def add_entry(name, weight, wins, losses, pins):
+    key = datastore_client.key("WeightEntry")
+    entry = datastore.Entity(key)
+    entry.update({
+        "name": name,
+        "weight": float(weight),
+        "wins": int(wins),
+        "losses": int(losses),
+        "pins": int(pins)
+    })
+    datastore_client.put(entry)
+
+def get_entries(filters=None):
+    query = datastore_client.query(kind="WeightEntry")
+    if filters:
+        for key, value in filters.items():
+            query.add_filter(key, "=", value)
+    return list(query.fetch())
+
+def delete_entry(entry_id):
+    key = datastore_client.key("WeightEntry", entry_id)
+    datastore_client.delete(key)
+
+def is_valid_name(name):
+    return re.match(r"^[A-Za-z ]+$", name)
+
+def is_valid_weight(weight):
+    try:
+        weight = float(weight)
+        return 80.0 <= weight <= 400.0
+    except ValueError:
+        return False
+
+def is_valid_number(value):
+    try:
+        return int(value) >= 0
+    except ValueError:
+        return False
+
+@app.route("/")
 def index():
-    if request.method == "POST":
-        try:
-            # Get and sanitize inputs
-            revenue = float(request.form["revenue"])
-            growth_rate = min(max(float(request.form["growth_rate"]), 0), 1000) / 100
-            gross_margin = min(max(float(request.form["gross_margin"]), 0), 100) / 100
-            opex_percent = min(max(float(request.form["opex_percent"]), 0), 100) / 100
-            capex = float(request.form["capex"])
-            tax_rate = min(max(float(request.form["tax_rate"]), 0), 100) / 100
-            discount_rate = min(max(float(request.form["discount_rate"]), 0), 100) / 100
-            terminal_growth = min(max(float(request.form["terminal_growth"]), 0), 1000) / 100
-
-            years = [2025, 2026, 2027, 2028, 2029]
-            revenues, gross_profits, opex_list, ebit_list, taxes, net_incomes = [], [], [], [], [], []
-            depreciation = capex * 0.25
-            fcfs = []
-
-            for i in range(5):
-                revenue = revenue * (1 + growth_rate) if i > 0 else revenue
-                gp = revenue * gross_margin
-                opex = revenue * opex_percent
-                ebit = gp - opex
-                tax = ebit * tax_rate
-                ni = ebit - tax
-                fcf = ni + depreciation - capex
-
-                revenues.append(revenue)
-                gross_profits.append(gp)
-                opex_list.append(opex)
-                ebit_list.append(ebit)
-                taxes.append(tax)
-                net_incomes.append(ni)
-                fcfs.append(fcf)
-
-            income_df = pd.DataFrame({
-                "Year": years,
-                "Revenue": revenues,
-                "Gross Profit": gross_profits,
-                "Operating Expenses": opex_list,
-                "EBIT": ebit_list,
-                "Taxes": taxes,
-                "Net Income": net_incomes
-            })
-
-            cashflow_df = pd.DataFrame({
-                "Year": years,
-                "Net Income": net_incomes,
-                "Depreciation": [depreciation] * 5,
-                "CapEx": [capex] * 5,
-                "Free Cash Flow": fcfs
-            })
-
-            discounted_fcfs = [fcfs[i] / ((1 + discount_rate) ** (i + 1)) for i in range(5)]
-            terminal_value = (fcfs[-1] * (1 + terminal_growth)) / (discount_rate - terminal_growth)
-            discounted_terminal = terminal_value / ((1 + discount_rate) ** 5)
-            firm_value = sum(discounted_fcfs) + discounted_terminal
-
-            dcf_df = pd.DataFrame({
-                "Year": years,
-                "Free Cash Flow": fcfs,
-                "Discounted FCF": discounted_fcfs
-            })
-
-            income_table = income_df.to_html(index=False, classes="table", float_format='{:,.2f}'.format)
-            cashflow_table = cashflow_df.to_html(index=False, classes="table", float_format='{:,.2f}'.format)
-            dcf_table = dcf_df.to_html(index=False, classes="table", float_format='{:,.2f}'.format)
-            firm_value_fmt = f"${firm_value:,.2f}"
-
-            if "download" in request.form:
-                excel_file = io.BytesIO()
-                with pd.ExcelWriter(excel_file, engine='openpyxl') as writer:
-                    income_df.to_excel(writer, index=False, sheet_name="Income Statement")
-                    cashflow_df.to_excel(writer, index=False, sheet_name="Cash Flow")
-                    dcf_df.to_excel(writer, index=False, sheet_name="DCF Summary")
-                excel_file.seek(0)
-                return send_file(
-                    excel_file,
-                    mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                    as_attachment=True,
-                    download_name='financial_model.xlsx'
-                )
-
-            return render_template("response.html", income_table=income_table, cashflow_table=cashflow_table,
-                                   dcf_table=dcf_table, firm_value=firm_value_fmt, request=request)
-
-        except Exception as e:
-            return f"Error processing form: {e}"
-
     return render_template("index.html")
 
+@app.route("/log_weight", methods=["GET", "POST"])
+def log_weight():
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        weight = request.form.get("weight", "").strip()
+        wins = request.form.get("wins", "0").strip()
+        losses = request.form.get("losses", "0").strip()
+        pins = request.form.get("pins", "0").strip()
+
+        if not (name and weight and wins and losses and pins):
+            return render_template("log_weight.html", error="All fields are required!")
+
+        if not is_valid_name(name):
+            return render_template("log_weight.html", error="Name must contain only letters and spaces!")
+
+        if not is_valid_weight(weight):
+            return render_template("log_weight.html", error="Weight must be between 80 and 400 lbs!")
+
+        if not (is_valid_number(wins) and is_valid_number(losses) and is_valid_number(pins)):
+            return render_template("log_weight.html", error="Wins, losses, and pins must be non-negative numbers!")
+
+        add_entry(name, weight, wins, losses, pins)
+        return redirect(url_for("view_entries"))
+
+    return render_template("log_weight.html")
+
+@app.route("/entries", methods=["GET", "POST"])
+def view_entries():
+    filters = {}
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        weight = request.form.get("weight", "").strip()
+        if name:
+            filters["name"] = name
+        if weight:
+            try:
+                filters["weight"] = float(weight)
+            except ValueError:
+                pass
+
+    entries = get_entries(filters)
+    return render_template("entries.html", entries=entries)
+
+@app.route("/delete_entry/<int:entry_id>", methods=["POST"])
+def delete_entry_route(entry_id):
+    delete_entry(entry_id)
+    return redirect(url_for("view_entries"))
+
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=8080, debug=True)
