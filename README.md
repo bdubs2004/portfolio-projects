@@ -1,15 +1,15 @@
-# 💼 AI + Finance Project Portfolio
+# AI + Finance Project Portfolio
 
 Welcome to my portfolio of applied AI, data analytics, and finance projects. Each project demonstrates my ability to build practical solutions using Python, machine learning, web frameworks, and business logic.
 
-📌 **Note:** Each project is contained in its own Git branch with all the necessary files to run it. Read the branch-specific README for setup and usage instructions.
+**Note:** Each project is contained in its own Git branch with all the necessary files to run it. Read the branch-specific README for setup and usage instructions.
 
 ---
 
-## 🚀 Featured Projects
+## Featured Projects
 
-| Project | Description | Link |
-|--------|-------------|------|
+| Project | Description |
+|--------|-------------|
 | **SpecBot** | Chatbot that reads PDFs/spec books and answers questions with source citation |
 | **Three Statement Financial Model** | Interactive Flask app to generate 3-statement model, DCF, and export Excel |
 | **NIL Valuator** | AI-driven tool to estimate NIL value of athletes based on input + prompts |
